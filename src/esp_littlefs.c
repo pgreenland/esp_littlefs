@@ -281,14 +281,14 @@ esp_err_t esp_littlefs_format(const char* partition_label) {
     esp_err_t err;
     esp_littlefs_t *efs = NULL;
 
-    ESP_LOGV(TAG, "Formatting \"%s\"", partition_label);
+    ESP_LOGI(TAG, "Formatting \"%s\"", partition_label);
 
     /* Get a context */
     err = esp_littlefs_by_label(partition_label, &index);
 
     if( err != ESP_OK ){
         /* Create a tmp context */
-        ESP_LOGV(TAG, "Temporarily creating EFS context.");
+        ESP_LOGI(TAG, "Temporarily creating EFS context.");
         efs_free = true;
         const esp_vfs_littlefs_conf_t conf = {
                 /* base_name not necessary for initializing */
@@ -314,7 +314,7 @@ esp_err_t esp_littlefs_format(const char* partition_label) {
     /* Unmount if mounted */
     if(efs->cache_size > 0){
         int res;
-        ESP_LOGV(TAG, "Partition was mounted. Unmounting...");
+        ESP_LOGI(TAG, "Partition was mounted. Unmounting...");
         was_mounted = true;
         res = lfs_unmount(efs->fs);
         if(res != LFS_ERR_OK){
@@ -327,8 +327,17 @@ esp_err_t esp_littlefs_format(const char* partition_label) {
     /* Erase and Format */
     {
         int res;
-        ESP_LOGV(TAG, "Formatting filesystem");
-        esp_littlefs_erase_partition(partition_label);
+        ESP_LOGI(TAG, "Formatting filesystem");
+        //esp_littlefs_erase_partition(partition_label);
+#if 0
+        {
+            uint8_t *buf = malloc(CONFIG_LITTLEFS_BLOCK_SIZE);
+            memset(buf, 0xFF, CONFIG_LITTLEFS_BLOCK_SIZE);
+            for (int i = 0; i < efs->cfg.block_count; i++)
+                efs->cfg.prog(&efs->cfg, i, 0, buf, CONFIG_LITTLEFS_BLOCK_SIZE);
+            free(buf);
+        }
+#endif
         res = lfs_format(efs->fs, &efs->cfg);
         if( res != LFS_ERR_OK ) {
             ESP_LOGE(TAG, "Failed to format filesystem");
@@ -340,7 +349,7 @@ esp_err_t esp_littlefs_format(const char* partition_label) {
     if( was_mounted ) {
         int res;
         /* Remount the partition */
-        ESP_LOGV(TAG, "Remounting formatted partition");
+        ESP_LOGI(TAG, "Remounting formatted partition");
         res = lfs_mount(efs->fs, &efs->cfg);
         if( res != LFS_ERR_OK ) {
             ESP_LOGE(TAG, "Failed to re-mount filesystem");
@@ -349,7 +358,7 @@ esp_err_t esp_littlefs_format(const char* partition_label) {
         efs->cache_size = CONFIG_LITTLEFS_FD_CACHE_MIN_SIZE;  // Initial size of cache; will resize ondemand
         efs->cache = calloc(sizeof(*efs->cache), efs->cache_size);
     }
-    ESP_LOGV(TAG, "Format Success!");
+    ESP_LOGI(TAG, "Format Success!");
     
     err = ESP_OK;
 
@@ -512,6 +521,12 @@ static int esp_littlefs_flags_conv(int m) {
     return lfs_flags;
 }
 
+static const esp_partition_t dummy_part = 
+{
+    .label = "littlefs",
+    .size = (256UL * 1024 * 1024)
+};
+
 /**
  * @brief Initialize and mount littlefs 
  * @param[in] conf Filesystem Configuration
@@ -550,7 +565,7 @@ static esp_err_t esp_littlefs_init(const esp_vfs_littlefs_conf_t* conf)
     }
 
 	{
-        uint32_t flash_page_size = g_rom_flashchip.page_size;
+        uint32_t flash_page_size = 512; // g_rom_flashchip.page_size;
         uint32_t log_page_size = CONFIG_LITTLEFS_PAGE_SIZE;
         if (log_page_size % flash_page_size != 0) {
             ESP_LOGE(TAG, "LITTLEFS_PAGE_SIZE is not multiple of flash chip page size (%d)",
@@ -566,6 +581,9 @@ static esp_err_t esp_littlefs_init(const esp_vfs_littlefs_conf_t* conf)
         goto exit;
     }
 
+#if 1
+    partition = &dummy_part;
+#else
     partition = esp_partition_find_first(
             ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_ANY,
             conf->partition_label);
@@ -575,6 +593,7 @@ static esp_err_t esp_littlefs_init(const esp_vfs_littlefs_conf_t* conf)
         err = ESP_ERR_NOT_FOUND;
         goto exit;
     }
+#endif
 
     /* Allocate Context */
     efs = calloc(1, sizeof(esp_littlefs_t));
